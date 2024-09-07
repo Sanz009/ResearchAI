@@ -1,5 +1,5 @@
 {
-  "name": "pdf-parser-frontend",
+  "name": "researchai",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -38,5 +38,20 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  }
+  },
+  "description": "React Application for Research AI",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sanz009/ResearchAI.git"
+  },
+  "keywords": [
+    "researchai"
+  ],
+  "author": "Sandeep S",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Sanz009/ResearchAI/issues"
+  },
+  "homepage": "/"
 }

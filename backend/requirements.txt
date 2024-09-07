@@ -7,3 +7,9 @@ google-auth-httplib2
 google-api-python-client
 pandas
 requests
+transformers
+bibtexparser
+PyMuPDF
+torch
+python-multipart
+openpyxl

@@ -56,7 +56,6 @@ CLIENT_CONFIG = {
         "client_id": os.getenv('GOOGLE_CLIENT_ID'),
         "client_secret": os.getenv('GOOGLE_CLIENT_SECRET'),
         "project_id": os.getenv('GOOGLE_PROJECT_ID'),
-        # Make sure REDIRECT_URIS is a JSON array string
         "redirect_uris": json.loads(os.getenv('GOOGLE_REDIRECT_URIS')),
         "auth_uri": os.getenv('GOOGLE_AUTH_URI', "https://accounts.google.com/o/oauth2/auth"),
         "token_uri": os.getenv('GOOGLE_TOKEN_URI', "https://oauth2.googleapis.com/token"),
