@@ -1,0 +1,48 @@
+body {
+  background-color: #f8f9fa;
+}
+
+.navbar {
+  margin-bottom: 20px;
+}
+
+.card {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+}
+
+.table {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.table-responsive {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table th, .table td {
+  white-space: nowrap;
+}
+
+.doi-column {
+  max-width: 100px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.accordion-button::after {
+  flex-shrink: 0;
+  margin-left: auto;
+  content: '\u25bc';
+}
+
+.accordion-button:not(.collapsed)::after {
+  content: '\u25b2';
+}
+
+.table th {
+  text-transform: none;
+}
