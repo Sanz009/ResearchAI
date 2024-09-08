@@ -21,10 +21,11 @@ from transformers import BartTokenizer, BartForConditionalGeneration
 
 from google_drive_helper import authenticate, create_folder, upload_file, download_file
 
-HOST_URL = f"localhost"
-
 # Load environment variables from .env file
 load_dotenv()
+
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000/")
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 app = FastAPI()
 
@@ -45,11 +46,11 @@ DATA_DIR = "./data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # Set the environment variable to disable HTTPS requirement for local development
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+# os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 # Google OAuth2 configuration
 SCOPES = ['https://www.googleapis.com/auth/drive.file', 'openid', 'https://www.googleapis.com/auth/userinfo.email']
-REDIRECT_URI = f"http://{HOST_URL}:8000/oauth2callback"
+REDIRECT_URI = f"{BACKEND_URL}/oauth2callback"
 
 CLIENT_CONFIG = {
     "installed": {
@@ -67,6 +68,11 @@ CLIENT_CONFIG = {
 
 class DeleteRequest(BaseModel):
     no: int
+
+
+@app.get("/")
+async def home():
+    return "Research AI Backend"
 
 
 @app.get("/authorize")
@@ -138,7 +144,7 @@ async def oauth2callback(request: Request):
     cleanup_local_data()
 
     # Redirect to frontend with user email and folder ID as query parameters
-    frontend_url = f"http://{HOST_URL}:3000?user_email={user_email}&folder_id={folder_id}"
+    frontend_url = f"{FRONTEND_URL}?user_email={user_email}&folder_id={folder_id}"
     return RedirectResponse(url=frontend_url)
 
 
@@ -170,7 +176,6 @@ async def upload_pdfs(files: List[UploadFile], user_folder: str, topic: str):
 @app.post("/parse_pdfs")
 async def parse_pdfs(files: List[UploadFile] = File(...), user_folder: str = Query(...), topic: str = Query(...)):
     responses = []
-    topic_file_path = os.path.join(DATA_DIR, f"{topic}.xlsx")
     for file in files:
         file_path = os.path.join(DATA_DIR, file.filename)
         try:
@@ -353,7 +358,9 @@ def load_existing_data(user_folder, topic):
     service = authenticate()
     files = service.files().list(q=f"'{user_folder}' in parents and name = '{topic}.xlsx'", spaces='drive',
                                  fields='files(id, name)').execute().get('files', [])
-    topic_file_path = os.path.join(DATA_DIR, f"{topic}.xlsx")
+
+    os.makedirs(os.path.join(DATA_DIR, user_folder), exist_ok=True)
+    topic_file_path = os.path.join(DATA_DIR, user_folder, f"{topic}.xlsx")
     if files:
         file_id = files[0]['id']
         download_file(service, file_id, topic_file_path)
@@ -373,7 +380,7 @@ def save_to_excel(data, user_folder, topic):
 
     # Use a consistent file name for the topic
     topic_file_name = f"{topic}.xlsx"
-    topic_file_path = os.path.join(DATA_DIR, topic_file_name)
+    topic_file_path = os.path.join(DATA_DIR, user_folder, topic_file_name)
 
     # Save the DataFrame to Excel
     df.to_excel(topic_file_path, index=False)
