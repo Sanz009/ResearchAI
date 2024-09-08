@@ -1,7 +1,8 @@
+import io
 import json
 import os
-import pickle
 import re
+import uuid
 from typing import List, Dict
 
 import bibtexparser
@@ -16,10 +17,13 @@ from fastapi.responses import RedirectResponse
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from google_auth_oauthlib.flow import Flow
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from pydantic import BaseModel
 from transformers import BartTokenizer, BartForConditionalGeneration
 
-from google_drive_helper import authenticate, create_folder, upload_file, download_file
+from google_drive_helper import authenticate, create_folder, upload_file
+from mongo_db_ops import store_tokens, get_folder_id, update_folder_id, get_user_id, store_oauth_state, \
+    delete_oauth_state, get_oauth_state
 
 # Load environment variables from .env file
 load_dotenv()
@@ -41,9 +45,6 @@ app.add_middleware(
 # Initialize the summarizer
 summarizer_tokenizer = BartTokenizer.from_pretrained('facebook/bart-large-cnn')
 summarizer_model = BartForConditionalGeneration.from_pretrained('facebook/bart-large-cnn')
-
-DATA_DIR = "./data"
-os.makedirs(DATA_DIR, exist_ok=True)
 
 # Set the environment variable to disable HTTPS requirement for local development
 # os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
@@ -76,74 +77,68 @@ async def home():
 
 
 @app.get("/authorize")
-def authorize():
+async def authorize():
     flow = Flow.from_client_config(
         CLIENT_CONFIG,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
-    authorization_url, state = flow.authorization_url(
+    state = str(uuid.uuid4())  # Generate unique state for the user
+
+    # Store the state in MongoDB
+    store_oauth_state(state, user_email="temp")  # user_email can be updated later if necessary
+
+    authorization_url, _ = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true',
-        prompt='consent'  # Use 'consent' to ensure a fresh login every time
+        prompt='consent',
+        state=state  # Include the unique state
     )
-    # Save the state so the callback can verify the auth server response
-    with open("state.txt", "w") as state_file:
-        state_file.write(state)
     return RedirectResponse(url=authorization_url)
 
 
 @app.get("/oauth2callback")
 async def oauth2callback(request: Request):
-    state = open("state.txt", "r").read()
+    # Retrieve the state from the callback URL
+    state = request.query_params.get('state')
+
+    # Validate the state to ensure the OAuth flow is legitimate
+    if not get_oauth_state(state):
+        raise HTTPException(status_code=400, detail="Invalid or expired state")
+
+    # Continue with the OAuth flow and fetch the token
     flow = Flow.from_client_config(
         CLIENT_CONFIG,
         scopes=SCOPES,
-        state=state,
         redirect_uri=REDIRECT_URI
     )
     authorization_response = str(request.url)
     flow.fetch_token(authorization_response=authorization_response)
 
-    # Save the credentials for later use
+    # Save the credentials and get the user's email from the ID token
     credentials = flow.credentials
-    with open("token.pickle", "wb") as token:
-        pickle.dump(credentials, token)
-
-    # Get user info
-    if credentials.id_token is None:
-        raise HTTPException(status_code=400, detail="ID token is missing")
-
     id_info = id_token.verify_oauth2_token(
         id_token=credentials.id_token,
         request=google_requests.Request(),
         audience=os.environ['GOOGLE_CLIENT_ID']
     )
     user_email = id_info.get('email')
-    print(f"User Email -> {user_email}")
     username = user_email.split('@')[0]
+    print(f"User Name: {username}")
+    store_tokens(username, credentials)
 
-    # Check if user folder already exists, otherwise create it
-    user_folder_mapping_path = 'user_folder_mapping.json'
-    if os.path.exists(user_folder_mapping_path):
-        with open(user_folder_mapping_path, 'r') as f:
-            user_folder_mapping = json.load(f)
-    else:
-        user_folder_mapping = {}
-
-    if username not in user_folder_mapping:
-        service = authenticate()
+    # Check if the folder ID already exists in the database; otherwise, create it
+    folder_id = get_folder_id(username)
+    print(f"Folder ID: {folder_id}")
+    if not folder_id:
+        service = authenticate(username)
         folder_id = create_folder(service, username)
-        user_folder_mapping[username] = folder_id
-        with open(user_folder_mapping_path, 'w') as f:
-            json.dump(user_folder_mapping, f)
-    else:
-        folder_id = user_folder_mapping[username]
+        update_folder_id(username, folder_id)
 
-    # Clean up any previous user's data in the local data directory
-    cleanup_local_data()
+    # Delete the state after it's used
+    delete_oauth_state(state)
 
-    # Redirect to frontend with user email and folder ID as query parameters
+    # Redirect to the frontend with the user email and folder ID as query parameters
     frontend_url = f"{FRONTEND_URL}?user_email={user_email}&folder_id={folder_id}"
     return RedirectResponse(url=frontend_url)
 
@@ -151,7 +146,7 @@ async def oauth2callback(request: Request):
 @app.get("/fetch_topics")
 async def fetch_topics(user_folder: str = Query(...)):
     try:
-        service = authenticate()
+        service = authenticate(get_user_id(user_folder))
         files = service.files().list(
             q=f"'{user_folder}' in parents and mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'",
             spaces='drive',
@@ -159,12 +154,13 @@ async def fetch_topics(user_folder: str = Query(...)):
         topics = [file['name'].replace('.xlsx', '') for file in files]
         return {"topics": topics}
     except Exception as e:
+        print(f"Error while fetching topics: {str(e)}")
         raise HTTPException(status_code=500, detail="Error fetching topics")
 
 
 @app.post("/upload_pdfs")
 async def upload_pdfs(files: List[UploadFile], user_folder: str, topic: str):
-    service = authenticate()
+    service = authenticate(get_user_id(user_folder))
     for file in files:
         file_path = f"data/{file.filename}"
         with open(file_path, "wb") as buffer:
@@ -177,13 +173,13 @@ async def upload_pdfs(files: List[UploadFile], user_folder: str, topic: str):
 async def parse_pdfs(files: List[UploadFile] = File(...), user_folder: str = Query(...), topic: str = Query(...)):
     responses = []
     for file in files:
-        file_path = os.path.join(DATA_DIR, file.filename)
         try:
-            with open(file_path, "wb") as buffer:
-                buffer.write(await file.read())
+            # Read the uploaded file into memory
+            pdf_buffer = io.BytesIO(await file.read())
 
-            paper_info = parse_pdf_details(file_path)
-            full_text = extract_full_text(file_path)
+            # Process the PDF content from the in-memory buffer
+            paper_info = parse_pdf_details(pdf_buffer)
+            full_text = extract_full_text(pdf_buffer)
             paper_info["SUMMARY"], paper_info["KEY_TAKEAWAYS"] = get_summary_and_takeaways(full_text)
 
             # Check for existing data
@@ -196,12 +192,32 @@ async def parse_pdfs(files: List[UploadFile] = File(...), user_folder: str = Que
 
             # Save the new data
             existing_data.append(paper_info)
-            save_to_excel(existing_data, user_folder, topic)
+
+            # Save to Excel in memory
+            excel_buffer = io.BytesIO()
+            df = pd.DataFrame(existing_data)
+            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False)
+            excel_buffer.seek(0)
+
+            # Upload to Google Drive
+            service = authenticate(get_user_id(user_folder))
+            file_metadata = {'name': f'{topic}.xlsx', 'parents': [user_folder]}
+            media_body = MediaIoBaseUpload(excel_buffer,
+                                           mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+            # Check if file already exists in Google Drive
+            files_in_drive = service.files().list(q=f"'{user_folder}' in parents and name='{topic}.xlsx'",
+                                                  spaces='drive', fields='files(id, name)').execute().get('files', [])
+            if files_in_drive:
+                file_id = files_in_drive[0]['id']
+                service.files().update(fileId=file_id, media_body=media_body).execute()
+            else:
+                service.files().create(body=file_metadata, media_body=media_body).execute()
 
             responses.append(paper_info)
-        finally:
-            if os.path.exists(file_path):
-                os.remove(file_path)
+        except Exception as e:
+            print(f"Error processing file {file.filename}: {e}")
     return responses
 
 
@@ -251,15 +267,14 @@ async def update_entry(entry: Dict, user_folder: str = Query(...), topic: str = 
                 return {"message": "Entry updated successfully"}
         raise HTTPException(status_code=404, detail="Entry not found")
     except Exception as e:
+        print(f"Error while updating entry: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/existing_data")
 def get_existing_data(user_folder: str = Query(...), topic: str = Query(...)):
     try:
-        print(f"Getting existing data for {user_folder}, topic: {topic}")
         existing_data = load_existing_data(user_folder, topic)
-        print(f"Loaded existing data: {existing_data}")
         return existing_data
     except Exception as e:
         print(f"Error loading existing data: {e}")
@@ -283,11 +298,13 @@ async def delete_entry(request: DeleteRequest, user_folder: str = Query(...), to
         save_to_excel(updated_data, user_folder, topic)
         return {"message": "Entry deleted successfully"}
     except Exception as e:
+        print(f"Error while deleting: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def parse_pdf_details(file_path):
-    with fitz.open(file_path) as pdf_reader:
+def parse_pdf_details(file_stream):
+    file_stream.seek(0)  # Reset the stream to the beginning
+    with fitz.open(stream=file_stream, filetype="pdf") as pdf_reader:
         text = ""
         for page_num in range(pdf_reader.page_count):
             page = pdf_reader.load_page(page_num)
@@ -309,9 +326,10 @@ def parse_pdf_details(file_path):
     }
 
 
-def extract_full_text(file_path):
+def extract_full_text(file_stream):
+    file_stream.seek(0)  # Reset the stream to the beginning
     text = ""
-    with fitz.open(file_path) as pdf_reader:
+    with fitz.open(stream=file_stream, filetype="pdf") as pdf_reader:
         for page_num in range(pdf_reader.page_count):
             page = pdf_reader.load_page(page_num)
             text += page.get_text()
@@ -355,61 +373,71 @@ def get_summary_and_takeaways(text):
 
 
 def load_existing_data(user_folder, topic):
-    service = authenticate()
+    service = authenticate(get_user_id(user_folder))
     files = service.files().list(q=f"'{user_folder}' in parents and name = '{topic}.xlsx'", spaces='drive',
                                  fields='files(id, name)').execute().get('files', [])
 
-    os.makedirs(os.path.join(DATA_DIR, user_folder), exist_ok=True)
-    topic_file_path = os.path.join(DATA_DIR, user_folder, f"{topic}.xlsx")
-    if files:
-        file_id = files[0]['id']
-        download_file(service, file_id, topic_file_path)
+    if not files:
+        # If no file exists, return an empty list
+        return []
+
+    # Get the file ID and download it directly into memory
+    file_id = files[0]['id']
+    request = service.files().get_media(fileId=file_id)
+
+    # Create an in-memory buffer to store the file
+    file_stream = io.BytesIO()
+    downloader = MediaIoBaseDownload(file_stream, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+        print(f"Download {int(status.progress() * 100)}%.")
+
+    # Move the pointer to the start of the file
+    file_stream.seek(0)
+
+    # Load the Excel file into a pandas DataFrame directly from memory
     try:
-        df = pd.read_excel(topic_file_path)
-        df = df.fillna("")
+        df = pd.read_excel(file_stream)
+        df = df.fillna("")  # Handle any missing values
         return df.to_dict(orient='records')
-    except FileNotFoundError:
+    except Exception as e:
+        print(f"Error loading Excel data: {e}")
         return []
 
 
 def save_to_excel(data, user_folder, topic):
+    # Create the Excel file in-memory using a BytesIO buffer
+    excel_buffer = io.BytesIO()
     df = pd.DataFrame(data)
     columns_order = ["SL_NO", "NAME", "YEAR", "PUBLICATION", "PAGE_NO", "SUMMARY", "ABSTRACT", "DOI", "AUTHOR",
                      "REMARKS"]
     df = df[columns_order]
 
-    # Use a consistent file name for the topic
-    topic_file_name = f"{topic}.xlsx"
-    topic_file_path = os.path.join(DATA_DIR, user_folder, topic_file_name)
+    # Save the DataFrame to the in-memory Excel file
+    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False)
+    excel_buffer.seek(0)
 
-    # Save the DataFrame to Excel
-    df.to_excel(topic_file_path, index=False)
+    # Authenticate and get the Google Drive service
+    service = authenticate(get_user_id(user_folder))
 
-    # Upload the file to Google Drive
-    service = authenticate()
-    files = service.files().list(q=f"'{user_folder}' in parents and name='{topic_file_name}'", spaces='drive',
-                                 fields='files(id, name)').execute().get('files', [])
+    # Prepare file metadata and media body for Google Drive upload
+    file_metadata = {'name': f'{topic}.xlsx', 'parents': [user_folder]}
+    media_body = MediaIoBaseUpload(excel_buffer,
+                                   mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-    if files:
-        # File already exists, update it
-        file_id = files[0]['id']
-        service.files().update(fileId=file_id, media_body=topic_file_path).execute()
+    # Check if the file already exists in Google Drive
+    files_in_drive = service.files().list(q=f"'{user_folder}' in parents and name='{topic}.xlsx'", spaces='drive',
+                                          fields='files(id, name)').execute().get('files', [])
+
+    # If the file exists, update it; otherwise, create a new one
+    if files_in_drive:
+        file_id = files_in_drive[0]['id']
+        service.files().update(fileId=file_id, media_body=media_body).execute()
     else:
-        # File doesn't exist, create a new one
-        upload_file(service, topic_file_path, user_folder)
-
-
-def cleanup_local_data():
-    if os.path.exists(DATA_DIR):
-        for file in os.listdir(DATA_DIR):
-            file_path = os.path.join(DATA_DIR, file)
-            try:
-                if os.path.isfile(file_path):
-                    os.remove(file_path)
-            except Exception as e:
-                print(f"Error removing file {file_path}: {e}")
+        service.files().create(body=file_metadata, media_body=media_body).execute()
 
 
 if __name__ == '__main__':
-    cleanup_local_data()
     uvicorn.run(app, host='0.0.0.0', port=8000)

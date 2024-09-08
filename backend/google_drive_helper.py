@@ -1,52 +1,47 @@
-import io
 import os
-import pickle
 
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+
+from mongo_db_ops import get_tokens
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 
-def authenticate():
-    creds = None
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            raise Exception("No valid credentials found. Please authenticate.")
+# Authentication function (synchronous)
+def authenticate(username=None):
+    creds = get_tokens(username)
     service = build('drive', 'v3', credentials=creds)
     return service
 
 
+# Create folder function (synchronous)
 def create_folder(service, folder_name):
     file_metadata = {
         'name': folder_name,
         'mimeType': 'application/vnd.google-apps.folder'
     }
-    file = service.files().create(body=file_metadata,
-                                  fields='id').execute()
+    # Synchronous call to create the folder
+    file = service.files().create(body=file_metadata, fields='id').execute()
     return file.get('id')
 
 
+# Upload file function (synchronous)
 def upload_file(service, file_path, folder_id):
     file_metadata = {'name': os.path.basename(file_path), 'parents': [folder_id]}
-    print(f"File Metadata = {file_metadata}")
     media = MediaFileUpload(file_path)
-    print(f"Media - {media}")
+    # Synchronous call to upload the file
     file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
     return file.get('id')
 
 
+# Download file function (synchronous)
 def download_file(service, file_id, destination):
     request = service.files().get_media(fileId=file_id)
-    fh = io.FileIO(destination, 'wb')
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while done is False:
-        status, done = downloader.next_chunk()
-        print("Download %d%%." % int(status.progress() * 100))
+    with open(destination, 'wb') as fh:
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            # Synchronous call to download the file chunk by chunk
+            status, done = downloader.next_chunk()
+            print(f"Download {int(status.progress() * 100)}%.")

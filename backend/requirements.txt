@@ -13,3 +13,7 @@ PyMuPDF
 torch
 python-multipart
 openpyxl
+pymongo
+pyjwt
+cryptography
+xlsxwriter
