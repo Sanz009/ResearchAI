@@ -1,70 +1,106 @@
-# Getting Started with Create React App
+# Research AI
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+The Research AI is a web application designed to interact with the Research AI backend running on python. It provides a user-friendly interface for managing research topics, uploading and parsing PDFs, and accessing data from Google Drive.
 
-## Available Scripts
+## Table of Contents
 
-In the project directory, you can run:
+1. [Features](#features)
+2. [Installation](#installation)
+3. [Configuration](#configuration)
+4. [Usage](#usage)
+5. [Contributing](#contributing)
+6. [License](#license)
 
-### `npm start`
+## Features
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- User authentication via Google OAuth2
+- Manage research topics
+- Upload and parse PDFs
+- View and edit existing data
+- Fetch data from Google Drive
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Installation
 
-### `npm test`
+### Prerequisites
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Ensure you have the following installed:
+- Node.js (version 14 or later)
+- npm (or yarn)
 
-### `npm run build`
+### Clone the Repository
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Clone the frontend repository to your local machine:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+git clone https://github.com/Sanz009/ResearchAI.git
+cd ResearchAI/frontend
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### Install Dependencies
 
-### `npm run eject`
+Navigate to the frontend directory and install the required dependencies:
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+npm install
+# or
+yarn install` 
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Configuration
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### Environment Variables
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Create a `.env` file in the root of the frontend directory and add the following environment variables:
 
-## Learn More
+env
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+```bash
+REACT_APP_BACKEND_URL=http://localhost:8000
+REACT_APP_GOOGLE_CLIENT_ID=your_google_client_id` 
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+Replace `your_google_client_id` with your actual Google Client ID. The `REACT_APP_BACKEND_URL` should point to your backend service.
 
-### Code Splitting
+### Running the Application
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+To start the development server, run:
 
-### Analyzing the Bundle Size
+```bash
+npm start
+# or
+yarn start` 
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+The application will be available at `http://localhost:3000`.
 
-### Making a Progressive Web App
+### Building for Production
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+To create a production build, run:
 
-### Advanced Configuration
+```bash
+npm run build
+# or
+yarn build` 
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+The production build will be available in the `build` directory.
 
-### Deployment
+## Usage
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+1.  **Authenticate**: Users will be redirected to Google OAuth2 for authentication.
+2.  **Manage Topics**: View, add, and delete research topics.
+3.  **Upload PDFs**: Upload PDF files for parsing and extracting data.
+4.  **View Data**: Access and manage data from Google Drive.
 
-### `npm run build` fails to minify
+## Contributing
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Contributions are welcome! Please follow these steps to contribute:
+
+1.  Fork the repository.
+2.  Create a new branch for your changes.
+3.  Make your changes and test them.
+4.  Submit a pull request with a detailed description of your changes.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
